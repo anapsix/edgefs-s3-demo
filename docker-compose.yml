@@ -1,0 +1,181 @@
+version: '2.4'
+services:
+  target:
+    mem_limit: 1g
+    memswap_limit: 0
+    privileged: true
+    ipc: "host"
+    restart: always
+    volumes:
+    - './var:/opt/nedge/var:z'
+    - './etc:/opt/nedge/etc:z'
+    - './data:/data:z'
+    environment:
+    - CCOW_EMBEDDED=1
+    - CCOWD_CGROUP_MEMLIM=950000000         # memory high watermark for ccow-daemon, 1GB minimum as of v1.0.2
+    - CCOW_MEMORY_LIMIT=20000000            # limit UCACHE within CGROUP_MEMLIM, 20mb
+    - JE_MALLOC_CONF=tcache:false           # ask jemalloc to consume less memory
+    - CCOW_LOG_LEVEL=5
+    - CCOWD_COREDUMP=0
+    image: 'edgefs/edgefs:latest'
+    command:
+    - target
+  mgmt:
+    mem_limit: 100m
+    depends_on:
+    - target
+    ipc: "host"
+    restart: always
+    volumes:
+    - './var:/opt/nedge/var:z'
+    - './etc:/opt/nedge/etc.target:z'
+    ports:
+    - "8881:8881"
+    - "8080:8080"
+    environment:
+    - CCOW_EMBEDDED=1
+    - CCOW_MEMORY_LIMIT=20000000          # limit UCACHE, 20mb
+    - JE_MALLOC_CONF=tcache:false         # ask jemalloc to consume less memory
+    - CCOW_LOG_LEVEL=5                    # log level, 3 - warnings, 0 - debug
+    image: 'edgefs/edgefs-restapi:latest'
+    command:
+    - mgmt
+  ui:
+    mem_limit: 100m
+    depends_on:
+    - mgmt
+    restart: always
+    ports:
+    - "3000:3000"
+    - "3443:3443"
+    environment:
+    - API_ENDPOINT=http://mgmt:8080
+    image: 'edgefs/edgefs-ui:latest'
+  s301:
+    mem_limit: 512m
+    depends_on:
+    - target
+    ipc: "host"
+    restart: always
+    volumes:
+    - './var:/opt/nedge/var:z'
+    - './etc:/opt/nedge/etc.target:z'
+    ports:
+    - "9982:9982"
+    - "9443:9443"
+    environment:
+    - CCOW_EMBEDDED=1
+    - CCOW_MEMORY_LIMIT=20000000    # limit UCACHE, 20mb, however, bigger faster.
+    - SVC_MEM_LIMIT=250000000       # to create 2 node.js processes i.e. SVC_MEM_LIMIT/SVC_MEM_PER_WORKER
+    - SVC_MEM_PER_WORKER=100000000  # limit service GC to 100mb
+    - JE_MALLOC_CONF=tcache:false   # ask jemalloc to consume less memory
+    - CCOW_SVCNAME=s301
+    - CCOW_LOG_LEVEL=5
+    - DEBUG=alert,error,info
+    image: 'edgefs/edgefs-restapi:latest'
+    command:
+    - s3
+  nfs01:
+    mem_limit: 512m
+    depends_on:
+    - target
+    ipc: "host"
+    restart: always
+    volumes:
+    - './var:/opt/nedge/var:z'
+    - './etc:/opt/nedge/etc.target:z'
+    ports:
+    - "111:111"
+    - "111:111/udp"
+    - "662:662"
+    - "662:662/udp"
+    - "2049:2049"
+    - "2049:2049/udp"
+    - "32803:32803"
+    - "32803:32803/udp"
+    - "20048:20048"
+    - "20048:20048/udp"
+    - "875:875"
+    - "875:875/udp"
+    environment:
+    - CCOW_EMBEDDED=1
+    - CCOW_MEMORY_LIMIT=100000000          # limit UCACHE, 100mb, however, bigger faster.
+    - JE_MALLOC_CONF=tcache:false          # ask jemalloc to consume less memory
+    - CCOW_SVCNAME=nfs01
+    - CCOW_LOG_LEVEL=5
+    image: 'edgefs/edgefs-isgw:latest'
+    command:
+    - nfs
+    - -b
+    - ":49000"
+  isgw01:
+    mem_limit: 256m
+    depends_on:
+    - target
+    network_mode: "host"
+    ipc: "host"
+    restart: always
+    volumes:
+    - './var:/opt/nedge/var:z'
+    - './etc:/opt/nedge/etc.target:z'
+    environment:
+    - CCOW_EMBEDDED=1
+    - CCOW_MEMORY_LIMIT=20000000           # limit UCACHE, 20mb, however, bigger faster.
+    - JE_MALLOC_CONF=tcache:false          # ask jemalloc to consume less memory
+    - EFSISGW_DIRECTION=3
+    - EFSISGW_REPLICATION_TYPE=3
+    - CCOW_SVCNAME=isgw01
+    - CCOW_LOG_LEVEL=3
+    image: 'edgefs/edgefs:latest'
+    command:
+    - isgw
+    - -b
+    - ":49001"
+################ iSCSI Target ###################
+#  isc01:
+#    mem_limit: 512m
+#    depends_on:
+#    - target
+#    ipc: "host"
+#    restart: always
+#    volumes:
+#    - './var:/opt/nedge/var:z'
+#    - './etc:/opt/nedge/etc.target:z'
+#    ports:
+#    - "3261:3260"
+#    environment:
+#    - TGT_PORTAL_OVERRIDE_ADDR=127.0.0.1   # iSCSI Target IP address on the host
+#    - CCOW_EMBEDDED=1
+#    - CCOW_MEMORY_LIMIT=100000000          # limit UCACHE, 100mb, however, bigger faster.
+#    - JE_MALLOC_CONF=tcache:false          # ask jemalloc to consume less memory
+#    - CCOW_SVCNAME=isc01
+#    - CCOW_LOG_LEVEL=5
+#    image: 'edgefs/edgefs:latest'
+#    command:
+#    - iscsi
+#    - -b
+#    - ":49002"
+################ S3X Extensions ###################
+#  s3x01:
+#    mem_limit: 512m
+#    depends_on:
+#    - target
+#    ipc: "host"
+#    restart: always
+#    volumes:
+#    - './var:/opt/nedge/var:z'
+#    - './etc:/opt/nedge/etc.target:z'
+#    ports:
+#    - "4000:4000"
+#    - "4443:4443"
+#    environment:
+#    - CCOW_EMBEDDED=1
+#    - CCOW_MEMORY_LIMIT=100000000          # limit UCACHE, 100mb, however, bigger faster.
+#    - JE_MALLOC_CONF=tcache:false          # ask jemalloc to consume less memory
+#    - CCOW_SVCNAME=s3x01
+#    - CCOW_LOG_LEVEL=5
+#    image: 'edgefs/edgefs:latest'
+#    command:
+#    - s3x
+#    - -b
+#    - ":49003"
